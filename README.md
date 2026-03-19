@@ -1,6 +1,6 @@
 # Kabot
 
-Kabot es un chatbot full stack con una identidad visual basada en la imagen adjunta.
+Kabot es un chatbot full stack con identidad visual.
 
 ## Stack
 
@@ -124,9 +124,3 @@ Variables requeridas:
 - `POST /api/chats`
 - `GET /api/chats/:chatId/messages`
 - `POST /api/chats/:chatId/messages`
-
-## Notas
-
-- El frontend trae una UI lista para chat.
-- La imagen adjunta ya quedó incorporada como mascota visual del proyecto.
-- El backend usa OpenAI mediante el SDK oficial para Node y el endpoint de chat completions. citeturn761556search0
