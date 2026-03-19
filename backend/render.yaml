@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: kabot-backend
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: APP_NAME
+        value: Kabot
+      - key: OPENAI_MODEL
+        value: gpt-4.1-mini
+      - key: FRONTEND_URL
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: SYSTEM_PROMPT
+        sync: false
