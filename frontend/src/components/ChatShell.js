@@ -2,10 +2,27 @@
 
 import { useEffect, useMemo, useState } from 'react';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL;
+const API_URL = process.env.NEXT_PUBLIC_API_URL?.trim() || '';
+const API_URL_ERROR = validateApiUrl(API_URL);
+
+function validateApiUrl(value) {
+  if (!value) {
+    return 'Falta la variable de entorno NEXT_PUBLIC_API_URL. Configurala para conectar el frontend con el backend.';
+  }
+
+  try {
+    return new URL(value).toString() ? '' : 'La variable NEXT_PUBLIC_API_URL no es válida.';
+  } catch {
+    return 'La variable de entorno NEXT_PUBLIC_API_URL debe ser una URL válida.';
+  }
+}
 
 async function request(path, options = {}) {
-  const response = await fetch(`${API_URL}${path}`, {
+  if (API_URL_ERROR) {
+    throw new Error(API_URL_ERROR);
+  }
+
+  const response = await fetch(`${API_URL.replace(/\/$/, '')}${path}`, {
     headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
     ...options,
   });
@@ -23,11 +40,19 @@ export default function ChatShell() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(API_URL_ERROR);
 
-  const disabled = useMemo(() => loading || !input.trim(), [loading, input]);
+  const disabled = useMemo(
+    () => loading || !input.trim() || Boolean(API_URL_ERROR),
+    [loading, input]
+  );
 
   useEffect(() => {
+    if (API_URL_ERROR) {
+      setError(API_URL_ERROR);
+      return;
+    }
+
     const init = async () => {
       try {
         setError('');
@@ -69,6 +94,11 @@ export default function ChatShell() {
   };
 
   const resetConversation = async () => {
+    if (API_URL_ERROR) {
+      setError(API_URL_ERROR);
+      return;
+    }
+
     try {
       setLoading(true);
       setError('');
@@ -115,10 +145,17 @@ export default function ChatShell() {
               <h2 style={styles.chatTitle}>Consola de conversación</h2>
               <p style={styles.chatHint}>Probá el flujo real del proyecto base.</p>
             </div>
-            <button onClick={resetConversation} style={styles.secondaryButton} disabled={loading}>
+            <button onClick={resetConversation} style={styles.secondaryButton} disabled={loading || Boolean(API_URL_ERROR)}>
               Nuevo chat
             </button>
           </div>
+
+          {API_URL_ERROR ? (
+            <div style={styles.configErrorBox}>
+              <p style={styles.configErrorTitle}>Configuración incompleta del frontend</p>
+              <p style={styles.configErrorText}>{API_URL_ERROR}</p>
+            </div>
+          ) : null}
 
           <div style={styles.messagesBox}>
             {messages.length === 0 ? (
@@ -149,6 +186,7 @@ export default function ChatShell() {
               placeholder="Escribí tu mensaje..."
               rows={4}
               style={styles.textarea}
+              disabled={Boolean(API_URL_ERROR)}
             />
             <div style={styles.formFooter}>
               <span style={styles.error}>{error}</span>
@@ -229,7 +267,7 @@ const styles = {
   chatPanel: {
     minHeight: 720,
     display: 'grid',
-    gridTemplateRows: 'auto 1fr auto',
+    gridTemplateRows: 'auto auto 1fr auto',
     gap: 16,
     padding: 20,
     borderRadius: 28,
@@ -250,6 +288,22 @@ const styles = {
   chatHint: {
     margin: '6px 0 0',
     color: '#9fb2cf',
+  },
+  configErrorBox: {
+    padding: '14px 16px',
+    borderRadius: 18,
+    border: '1px solid rgba(255, 107, 107, 0.4)',
+    background: 'rgba(80, 18, 18, 0.55)',
+  },
+  configErrorTitle: {
+    margin: '0 0 6px',
+    color: '#ffd1d1',
+    fontWeight: 700,
+  },
+  configErrorText: {
+    margin: 0,
+    color: '#ffdede',
+    lineHeight: 1.6,
   },
   messagesBox: {
     display: 'flex',

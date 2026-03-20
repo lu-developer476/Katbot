@@ -34,18 +34,37 @@ kabot/
 NEXT_PUBLIC_API_URL=http://localhost:4000
 ```
 
+- `NEXT_PUBLIC_API_URL` es **obligatoria** y debe ser una URL válida.
+- Si falta o es inválida, el frontend muestra un mensaje visible en pantalla, deshabilita el formulario y no intenta hacer requests al backend.
+
 ### Backend (`backend/.env`)
 
 ```env
 PORT=4000
 NODE_ENV=development
-FRONTEND_URL=http://localhost:3000
-OPENAI_API_KEY=sk-...
-OPENAI_MODEL=gpt-4.1-mini
 DATABASE_URL=postgresql://postgres:password@db.xxx.supabase.co:5432/postgres?sslmode=require
+OPENAI_API_KEY=sk-...
+FRONTEND_URL=http://localhost:3000
+OPENAI_MODEL=gpt-4.1-mini
 APP_NAME=Kabot
 SYSTEM_PROMPT=Eres Kabot, un asistente útil, claro, rápido y confiable. Responde en español salvo que el usuario pida otro idioma.
 ```
+
+#### Variables requeridas del backend
+
+- `DATABASE_URL`: conexión a PostgreSQL.
+- `OPENAI_API_KEY`: credencial de OpenAI.
+
+Si falta cualquiera de esas dos variables, el backend registra un error claro en español y termina inmediatamente con código de salida `1`.
+
+#### Variables opcionales del backend (con defaults seguros)
+
+- `FRONTEND_URL` → `http://localhost:3000`
+- `OPENAI_MODEL` → `gpt-4.1-mini`
+- `APP_NAME` → `Kabot`
+- `SYSTEM_PROMPT` → prompt base en español incluido en el proyecto
+
+`FRONTEND_URL` también se valida como URL. Si está presente pero es inválida, el backend no arranca.
 
 ## Base de datos
 
@@ -106,16 +125,18 @@ npm run dev
 - Build Command: `npm install`
 - Start Command: `npm start`
 
-Variables requeridas:
+Variables recomendadas para producción:
 
 - `PORT=10000`
 - `NODE_ENV=production`
-- `FRONTEND_URL=https://TU-FRONTEND.vercel.app`
-- `OPENAI_API_KEY=...`
-- `OPENAI_MODEL=gpt-4.1-mini`
 - `DATABASE_URL=postgresql://...`
+- `OPENAI_API_KEY=...`
+- `FRONTEND_URL=https://TU-FRONTEND.vercel.app`
+- `OPENAI_MODEL=gpt-4.1-mini`
 - `APP_NAME=Kabot`
 - `SYSTEM_PROMPT=Eres Kabot...`
+
+Recordá que `DATABASE_URL` y `OPENAI_API_KEY` son obligatorias para iniciar el backend, mientras que las demás usan defaults o validaciones seguras.
 
 ## Endpoints
 
