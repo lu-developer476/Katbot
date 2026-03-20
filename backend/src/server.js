@@ -9,11 +9,34 @@ const app = express();
 const PORT = Number(process.env.PORT || 4000);
 const { FRONTEND_URL, APP_NAME, SYSTEM_PROMPT } = env;
 
-app.use(
-  cors({
-    origin: FRONTEND_URL,
-  })
+const allowedOrigins = new Set(
+  FRONTEND_URL.split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean)
+    .map((origin) => origin.replace(/\/+$/, ''))
 );
+
+const corsOptions = {
+  origin(origin, callback) {
+    if (!origin) {
+      return callback(null, true);
+    }
+
+    const normalizedOrigin = origin.trim().replace(/\/+$/, '');
+
+    if (allowedOrigins.has(normalizedOrigin)) {
+      return callback(null, true);
+    }
+
+    return callback(
+      new Error(
+        `CORS blocked for origin ${origin}. Allowed origins: ${Array.from(allowedOrigins).join(', ')}`
+      )
+    );
+  },
+};
+
+app.use(cors(corsOptions));
 app.use(express.json());
 
 app.get('/health', async (_req, res) => {
@@ -131,8 +154,12 @@ app.post('/api/chats/:chatId/messages', async (req, res) => {
 });
 
 app.use((err, _req, res, _next) => {
+  if (err.message?.startsWith('CORS blocked for origin')) {
+    return res.status(403).json({ error: err.message });
+  }
+
   console.error(err);
-  res.status(500).json({ error: 'Error interno del servidor.' });
+  return res.status(500).json({ error: 'Error interno del servidor.' });
 });
 
 app.listen(PORT, () => {
