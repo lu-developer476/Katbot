@@ -7,7 +7,18 @@ import { env } from './env.js';
 
 const app = express();
 const PORT = Number(process.env.PORT || 4000);
+const CHAT_CONTEXT_WINDOW_SIZE = 16;
 const { FRONTEND_URL, APP_NAME, SYSTEM_PROMPT } = env;
+
+function buildPromptMessages(historyRows) {
+  // Limitamos el historial enviado al modelo para bajar costo y latencia sin dejar de guardar todo en la base.
+  const recentMessages = historyRows.slice(-CHAT_CONTEXT_WINDOW_SIZE);
+
+  return [
+    { role: 'system', content: SYSTEM_PROMPT },
+    ...recentMessages.map((row) => ({ role: row.role, content: row.content })),
+  ];
+}
 
 const allowedOrigins = new Set(
   FRONTEND_URL.split(',')
@@ -123,10 +134,7 @@ app.post('/api/chats/:chatId/messages', async (req, res) => {
       [chatId]
     );
 
-    const promptMessages = [
-      { role: 'system', content: SYSTEM_PROMPT },
-      ...history.rows.map((row) => ({ role: row.role, content: row.content })),
-    ];
+    const promptMessages = buildPromptMessages(history.rows);
 
     const assistantReply = await generateAssistantReply(promptMessages);
 

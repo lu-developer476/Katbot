@@ -26,6 +26,14 @@ kabot/
 4. El backend consulta OpenAI.
 5. El backend persiste la respuesta y la devuelve al frontend.
 
+## Ventana de contexto enviada al modelo
+
+- Kabot sigue guardando **todo** el historial del chat en PostgreSQL.
+- Al consultar OpenAI, el backend envía siempre el `SYSTEM_PROMPT` más una ventana reciente de mensajes del chat.
+- Esa ventana se controla con la constante `CHAT_CONTEXT_WINDOW_SIZE` en `backend/src/server.js` y por defecto usa los últimos `16` mensajes.
+- Los mensajes se mantienen en orden cronológico para no romper el contexto reciente.
+- Este recorte solo reduce tokens, costo y latencia hacia OpenAI; no cambia lo que se almacena ni lo que luego se puede recuperar desde la base.
+
 ## Variables de entorno
 
 ### Frontend (`frontend/.env.local`)
