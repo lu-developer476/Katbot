@@ -155,6 +155,13 @@ Variables recomendadas para producción:
 
 Recordá que `DATABASE_URL` y `OPENAI_API_KEY` son obligatorias para iniciar el backend, mientras que las demás usan defaults o validaciones seguras.
 
+## Timeouts de requests
+
+- El frontend corta la creación del chat si el backend no responde en `10s` y muestra un mensaje claro para reintentar.
+- El envío de mensajes desde la UI vence a los `30s`, limpia el estado `loading` y evita dejar el botón en `Pensando...` indefinidamente.
+- El cliente de OpenAI del backend usa un timeout de `25s`, para que una llamada lenta al modelo no deje colgada la request del servidor.
+- Si alguno de esos timeouts se dispara, el usuario ve un error entendible y puede volver a intentar el flujo normal sin recargar toda la app.
+
 ## Endpoints
 
 - `GET /health`
