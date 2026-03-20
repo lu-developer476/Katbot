@@ -1,16 +1,44 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
-import { query } from './db.js';
+import { query, pool } from './db.js';
 import { generateAssistantReply } from './openai.js';
 import { env } from './env.js';
 
 const app = express();
 const PORT = Number(process.env.PORT || 4000);
+const HOST = '0.0.0.0';
 const CHAT_CONTEXT_WINDOW_SIZE = 16;
 const JSON_BODY_LIMIT = '100kb';
 const MAX_USER_MESSAGE_LENGTH = 4000;
 const { FRONTEND_URL, APP_NAME, SYSTEM_PROMPT } = env;
+const allowedOrigins = new Set(
+  FRONTEND_URL.split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean)
+    .map((origin) => origin.replace(/\/+$/, ''))
+);
+
+function logInfo(message, details) {
+  if (details) {
+    console.log(`[${APP_NAME}] ${message}`, details);
+    return;
+  }
+
+  console.log(`[${APP_NAME}] ${message}`);
+}
+
+function logError(message, error, details) {
+  if (details) {
+    console.error(`[${APP_NAME}] ${message}`, details);
+  } else {
+    console.error(`[${APP_NAME}] ${message}`);
+  }
+
+  if (error) {
+    console.error(error);
+  }
+}
 
 function buildPromptMessages(historyRows) {
   // Limitamos el historial enviado al modelo para bajar costo y latencia sin dejar de guardar todo en la base.
@@ -43,12 +71,13 @@ function validateUserMessage(rawContent) {
   return { valid: true, content };
 }
 
-const allowedOrigins = new Set(
-  FRONTEND_URL.split(',')
-    .map((origin) => origin.trim())
-    .filter(Boolean)
-    .map((origin) => origin.replace(/\/+$/, ''))
-);
+function sendError(res, statusCode, clientMessage, logContext, error) {
+  if (statusCode >= 500) {
+    logError(logContext, error);
+  }
+
+  return res.status(statusCode).json({ error: clientMessage });
+}
 
 const corsOptions = {
   origin(origin, callback) {
@@ -70,6 +99,8 @@ const corsOptions = {
   },
 };
 
+app.disable('x-powered-by');
+app.set('trust proxy', 1);
 app.use((_req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
@@ -82,9 +113,9 @@ app.use(express.json({ limit: JSON_BODY_LIMIT }));
 app.get('/health', async (_req, res) => {
   try {
     await query('select 1');
-    res.json({ ok: true, app: APP_NAME });
+    res.json({ ok: true, app: APP_NAME, uptimeSeconds: Math.round(process.uptime()) });
   } catch (error) {
-    res.status(500).json({ ok: false, error: error.message });
+    return sendError(res, 500, 'La base de datos no está disponible.', 'Healthcheck falló.', error);
   }
 });
 
@@ -98,7 +129,7 @@ app.get('/api/chats', async (_req, res) => {
     );
     res.json({ chats: result.rows });
   } catch (error) {
-    res.status(500).json({ error: 'No se pudieron obtener los chats.' });
+    return sendError(res, 500, 'No se pudieron obtener los chats.', 'Error al listar chats.', error);
   }
 });
 
@@ -114,7 +145,7 @@ app.post('/api/chats', async (req, res) => {
 
     res.status(201).json({ chat: result.rows[0] });
   } catch (error) {
-    res.status(500).json({ error: 'No se pudo crear el chat.' });
+    return sendError(res, 500, 'No se pudo crear el chat.', 'Error al crear un chat.', error);
   }
 });
 
@@ -131,7 +162,13 @@ app.get('/api/chats/:chatId/messages', async (req, res) => {
 
     res.json({ messages: result.rows });
   } catch (error) {
-    res.status(500).json({ error: 'No se pudieron obtener los mensajes.' });
+    return sendError(
+      res,
+      500,
+      'No se pudieron obtener los mensajes.',
+      `Error al obtener mensajes del chat ${req.params.chatId}.`,
+      error
+    );
   }
 });
 
@@ -166,7 +203,6 @@ app.post('/api/chats/:chatId/messages', async (req, res) => {
     );
 
     const promptMessages = buildPromptMessages(history.rows);
-
     const assistantReply = await generateAssistantReply(promptMessages);
 
     await query(
@@ -187,8 +223,13 @@ app.post('/api/chats/:chatId/messages', async (req, res) => {
 
     return res.status(201).json({ messages: allMessages.rows });
   } catch (error) {
-    console.error(error);
-    return res.status(500).json({ error: 'No se pudo procesar el mensaje.' });
+    return sendError(
+      res,
+      500,
+      'No se pudo procesar el mensaje.',
+      `Error al procesar un mensaje del chat ${chatId}.`,
+      error
+    );
   }
 });
 
@@ -196,7 +237,7 @@ app.use((_req, res) => {
   return res.status(404).json({ error: 'Ruta no encontrada.' });
 });
 
-app.use((err, _req, res, _next) => {
+app.use((err, req, res, _next) => {
   if (err.type === 'entity.too.large') {
     return res.status(413).json({ error: `El body supera el límite permitido de ${JSON_BODY_LIMIT}.` });
   }
@@ -206,13 +247,60 @@ app.use((err, _req, res, _next) => {
   }
 
   if (err.message?.startsWith('CORS blocked for origin')) {
+    logError(`Solicitud bloqueada por CORS en ${req.method} ${req.originalUrl}.`, null, {
+      origin: req.headers.origin || 'sin origin',
+    });
     return res.status(403).json({ error: err.message });
   }
 
-  console.error(err);
+  logError(`Error no controlado en ${req.method} ${req.originalUrl}.`, err);
   return res.status(500).json({ error: 'Error interno del servidor.' });
 });
 
-app.listen(PORT, () => {
-  console.log(`${APP_NAME} backend escuchando en http://localhost:${PORT}`);
+const server = app.listen(PORT, HOST, () => {
+  logInfo(`Backend listo en http://${HOST}:${PORT}`);
+  logInfo('Configuración de runtime', {
+    node: process.version,
+    environment: process.env.NODE_ENV || 'development',
+    port: PORT,
+    allowedOrigins: Array.from(allowedOrigins),
+  });
+});
+
+async function shutdown(signal) {
+  logInfo(`Señal ${signal} recibida. Cerrando servidor...`);
+
+  server.close(async (serverError) => {
+    if (serverError) {
+      logError('Error al cerrar el servidor HTTP.', serverError);
+      process.exit(1);
+      return;
+    }
+
+    try {
+      await pool.end();
+      logInfo('Conexiones a PostgreSQL cerradas. Proceso finalizado.');
+      process.exit(0);
+    } catch (poolError) {
+      logError('Error al cerrar el pool de PostgreSQL.', poolError);
+      process.exit(1);
+    }
+  });
+}
+
+process.on('SIGTERM', () => {
+  void shutdown('SIGTERM');
+});
+
+process.on('SIGINT', () => {
+  void shutdown('SIGINT');
+});
+
+process.on('unhandledRejection', (reason) => {
+  logError('Unhandled promise rejection.', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  logError('Uncaught exception.', error);
+  process.exit(1);
 });
