@@ -8,6 +8,8 @@ import { env } from './env.js';
 const app = express();
 const PORT = Number(process.env.PORT || 4000);
 const CHAT_CONTEXT_WINDOW_SIZE = 16;
+const JSON_BODY_LIMIT = '100kb';
+const MAX_USER_MESSAGE_LENGTH = 4000;
 const { FRONTEND_URL, APP_NAME, SYSTEM_PROMPT } = env;
 
 function buildPromptMessages(historyRows) {
@@ -18,6 +20,27 @@ function buildPromptMessages(historyRows) {
     { role: 'system', content: SYSTEM_PROMPT },
     ...recentMessages.map((row) => ({ role: row.role, content: row.content })),
   ];
+}
+
+function validateUserMessage(rawContent) {
+  if (typeof rawContent !== 'string') {
+    return { valid: false, error: 'El mensaje debe ser texto.' };
+  }
+
+  const content = rawContent.trim();
+
+  if (!content) {
+    return { valid: false, error: 'El mensaje está vacío.' };
+  }
+
+  if (content.length > MAX_USER_MESSAGE_LENGTH) {
+    return {
+      valid: false,
+      error: `El mensaje supera el máximo permitido de ${MAX_USER_MESSAGE_LENGTH} caracteres.`,
+    };
+  }
+
+  return { valid: true, content };
 }
 
 const allowedOrigins = new Set(
@@ -47,8 +70,14 @@ const corsOptions = {
   },
 };
 
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  next();
+});
 app.use(cors(corsOptions));
-app.use(express.json());
+app.use(express.json({ limit: JSON_BODY_LIMIT }));
 
 app.get('/health', async (_req, res) => {
   try {
@@ -108,11 +137,13 @@ app.get('/api/chats/:chatId/messages', async (req, res) => {
 
 app.post('/api/chats/:chatId/messages', async (req, res) => {
   const { chatId } = req.params;
-  const content = req.body?.content?.trim();
+  const validation = validateUserMessage(req.body?.content);
 
-  if (!content) {
-    return res.status(400).json({ error: 'El mensaje está vacío.' });
+  if (!validation.valid) {
+    return res.status(400).json({ error: validation.error });
   }
+
+  const { content } = validation;
 
   try {
     const chatExists = await query('select id from chats where id = $1 limit 1', [chatId]);
@@ -161,7 +192,19 @@ app.post('/api/chats/:chatId/messages', async (req, res) => {
   }
 });
 
+app.use((_req, res) => {
+  return res.status(404).json({ error: 'Ruta no encontrada.' });
+});
+
 app.use((err, _req, res, _next) => {
+  if (err.type === 'entity.too.large') {
+    return res.status(413).json({ error: `El body supera el límite permitido de ${JSON_BODY_LIMIT}.` });
+  }
+
+  if (err instanceof SyntaxError && 'body' in err) {
+    return res.status(400).json({ error: 'El body JSON es inválido.' });
+  }
+
   if (err.message?.startsWith('CORS blocked for origin')) {
     return res.status(403).json({ error: err.message });
   }

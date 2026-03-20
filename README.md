@@ -162,3 +162,12 @@ Recordá que `DATABASE_URL` y `OPENAI_API_KEY` son obligatorias para iniciar el 
 - `POST /api/chats`
 - `GET /api/chats/:chatId/messages`
 - `POST /api/chats/:chatId/messages`
+
+## Endurecimiento básico del backend
+
+- El backend ahora agrega headers HTTP defensivos básicos (`X-Content-Type-Options`, `X-Frame-Options` y `Referrer-Policy`) sin complejizar la app.
+- `express.json` está limitado a `100kb`, por lo que bodies enormes se rechazan antes de llegar a la lógica de negocio.
+- Los mensajes de usuario se validan antes de guardarse y antes de enviarse a OpenAI.
+- Se rechazan mensajes vacíos, no textuales o de más de `4000` caracteres con errores `400` claros.
+- Requests con JSON inválido responden `400` y rutas inexistentes responden un `404` JSON consistente.
+- Si el body completo supera el límite configurado, la API responde `413 Payload Too Large`.
