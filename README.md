@@ -1,6 +1,6 @@
 # Kabot
 
-Kabot es un chatbot full stack con identidad visual.
+Kabot es un chatbot full stack con identidad visual, preparado para correr localmente y para un deploy simple en Vercel + Render sin cambiar su arquitectura base.
 
 ## Stack
 
@@ -9,6 +9,7 @@ Kabot es un chatbot full stack con identidad visual.
 - **IA:** OpenAI API
 - **Base de datos:** PostgreSQL (Supabase)
 - **Deploy:** Vercel (frontend) + Render (backend)
+- **Versión de Node recomendada:** 20.x (alineada con `.nvmrc` y `engines`)
 
 ## Estructura
 
@@ -67,6 +68,7 @@ Si falta cualquiera de esas dos variables, el backend registra un error claro en
 
 #### Variables opcionales del backend (con defaults seguros)
 
+- `PORT` → `4000` en local. En Render conviene dejar que la plataforma inyecte su propio puerto.
 - `FRONTEND_URL` → `http://localhost:3000` (acepta una o varias URLs separadas por comas)
 - `OPENAI_MODEL` → `gpt-4.1-mini`
 - `APP_NAME` → `Kabot`
@@ -110,30 +112,50 @@ create index if not exists idx_messages_chat_id_created_at on messages(chat_id, 
 
 También está incluido en `backend/sql/schema.sql`.
 
-## Desarrollo local
+## Scripts del proyecto
 
-### 1) Frontend
+### Backend
+
+```bash
+cd backend
+npm install
+npm run dev    # desarrollo con watch
+npm run check  # validación sintáctica del entrypoint
+npm start      # arranque estilo producción
+```
+
+### Frontend
 
 ```bash
 cd frontend
 npm install
 npm run dev
+npm run build
+npm start
+npm run lint
 ```
 
-### 2) Backend
+## Endurecimiento básico del backend
 
-```bash
-cd backend
-npm install
-npm run dev
-```
+- El backend arranca con logs más claros sobre app, entorno, versión de Node, puerto y orígenes permitidos.
+- Express desactiva `x-powered-by` y confía en un proxy simple (`trust proxy`) para funcionar mejor detrás de Render/Vercel.
+- `express.json` está limitado a `100kb`, por lo que bodies enormes se rechazan antes de llegar a la lógica de negocio.
+- Los mensajes de usuario se validan antes de guardarse y antes de enviarse a OpenAI.
+- Se rechazan mensajes vacíos, no textuales o de más de `4000` caracteres con errores `400` claros.
+- Requests con JSON inválido responden `400`, rutas inexistentes responden `404` JSON consistente y bodies demasiado grandes responden `413`.
+- Los errores del backend ahora salen por una vía común, con contexto útil en logs sin agregar dependencias extra.
+- El proceso maneja `SIGINT` y `SIGTERM` para cerrar HTTP + PostgreSQL de forma ordenada durante deploys o reinicios.
 
 ## Deploy en Vercel
 
 - Root Directory: `frontend`
 - Framework Preset: `Next.js`
+- Install Command: `npm install`
+- Build Command: `npm run build`
+- Output: default de Next.js
 - Variable:
   - `NEXT_PUBLIC_API_URL=https://TU-BACKEND.onrender.com`
+- Node.js: `20.x`
 
 ## Deploy en Render
 
@@ -141,19 +163,26 @@ npm run dev
 - Environment: `Node`
 - Build Command: `npm install`
 - Start Command: `npm start`
+- Health Check Path: `/health`
+- Node.js: `20.x`
 
 Variables recomendadas para producción:
 
-- `PORT=10000`
-- `NODE_ENV=production`
-- `DATABASE_URL=postgresql://...`
-- `OPENAI_API_KEY=...`
-- `FRONTEND_URL=http://localhost:3000,https://TU-FRONTEND.vercel.app`
-- `OPENAI_MODEL=gpt-4.1-mini`
-- `APP_NAME=Kabot`
-- `SYSTEM_PROMPT=Eres Kabot...`
+```env
+NODE_ENV=production
+DATABASE_URL=postgresql://...
+OPENAI_API_KEY=...
+FRONTEND_URL=https://TU-FRONTEND.vercel.app
+OPENAI_MODEL=gpt-4.1-mini
+APP_NAME=Kabot
+SYSTEM_PROMPT=Eres Kabot...
+```
 
-Recordá que `DATABASE_URL` y `OPENAI_API_KEY` son obligatorias para iniciar el backend, mientras que las demás usan defaults o validaciones seguras.
+Notas:
+
+- En Render no hace falta fijar `PORT` manualmente salvo que quieras sobreescribirlo en otro entorno; la plataforma ya lo provee.
+- Si usás preview deployments de Vercel, agregá también esos dominios a `FRONTEND_URL` separados por coma.
+- `DATABASE_URL` y `OPENAI_API_KEY` siguen siendo obligatorias para iniciar el backend.
 
 ## Timeouts de requests
 
@@ -169,12 +198,3 @@ Recordá que `DATABASE_URL` y `OPENAI_API_KEY` son obligatorias para iniciar el 
 - `POST /api/chats`
 - `GET /api/chats/:chatId/messages`
 - `POST /api/chats/:chatId/messages`
-
-## Endurecimiento básico del backend
-
-- El backend ahora agrega headers HTTP defensivos básicos (`X-Content-Type-Options`, `X-Frame-Options` y `Referrer-Policy`) sin complejizar la app.
-- `express.json` está limitado a `100kb`, por lo que bodies enormes se rechazan antes de llegar a la lógica de negocio.
-- Los mensajes de usuario se validan antes de guardarse y antes de enviarse a OpenAI.
-- Se rechazan mensajes vacíos, no textuales o de más de `4000` caracteres con errores `400` claros.
-- Requests con JSON inválido responden `400` y rutas inexistentes responden un `404` JSON consistente.
-- Si el body completo supera el límite configurado, la API responde `413 Payload Too Large`.
