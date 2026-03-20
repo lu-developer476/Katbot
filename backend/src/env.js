@@ -11,15 +11,34 @@ function readEnv(name, fallback) {
   return value || fallback;
 }
 
-function ensureUrl(name, value) {
-  try {
-    return new URL(value).toString().replace(/\/$/, '');
-  } catch {
+function normalizeUrl(value) {
+  return new URL(value).toString().replace(/\/+$/, '');
+}
+
+function ensureFrontendUrls(name, value) {
+  const normalizedUrls = value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      try {
+        return normalizeUrl(entry);
+      } catch {
+        console.error(
+          `Error de configuración: cada origen en ${name} debe ser una URL válida. Valor recibido: ${entry || '(vacío)'}.`
+        );
+        process.exit(1);
+      }
+    });
+
+  if (normalizedUrls.length === 0) {
     console.error(
-      `Error de configuración: la variable ${name} debe ser una URL válida. Valor recibido: ${value || '(vacío)'}.`
+      `Error de configuración: la variable ${name} debe incluir al menos una URL válida separada por comas.`
     );
     process.exit(1);
   }
+
+  return normalizedUrls.join(',');
 }
 
 function ensureRequired(name) {
@@ -38,7 +57,7 @@ function ensureRequired(name) {
 export const env = {
   DATABASE_URL: ensureRequired('DATABASE_URL'),
   OPENAI_API_KEY: ensureRequired('OPENAI_API_KEY'),
-  FRONTEND_URL: ensureUrl('FRONTEND_URL', readEnv('FRONTEND_URL', DEFAULT_ENV.FRONTEND_URL)),
+  FRONTEND_URL: ensureFrontendUrls('FRONTEND_URL', readEnv('FRONTEND_URL', DEFAULT_ENV.FRONTEND_URL)),
   OPENAI_MODEL: readEnv('OPENAI_MODEL', DEFAULT_ENV.OPENAI_MODEL),
   APP_NAME: readEnv('APP_NAME', DEFAULT_ENV.APP_NAME),
   SYSTEM_PROMPT: readEnv('SYSTEM_PROMPT', DEFAULT_ENV.SYSTEM_PROMPT),

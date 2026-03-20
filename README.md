@@ -44,7 +44,7 @@ PORT=4000
 NODE_ENV=development
 DATABASE_URL=postgresql://postgres:password@db.xxx.supabase.co:5432/postgres?sslmode=require
 OPENAI_API_KEY=sk-...
-FRONTEND_URL=http://localhost:3000
+FRONTEND_URL=http://localhost:3000,https://mi-frontend.vercel.app
 OPENAI_MODEL=gpt-4.1-mini
 APP_NAME=Kabot
 SYSTEM_PROMPT=Eres Kabot, un asistente útil, claro, rápido y confiable. Responde en español salvo que el usuario pida otro idioma.
@@ -59,12 +59,21 @@ Si falta cualquiera de esas dos variables, el backend registra un error claro en
 
 #### Variables opcionales del backend (con defaults seguros)
 
-- `FRONTEND_URL` → `http://localhost:3000`
+- `FRONTEND_URL` → `http://localhost:3000` (acepta una o varias URLs separadas por comas)
 - `OPENAI_MODEL` → `gpt-4.1-mini`
 - `APP_NAME` → `Kabot`
 - `SYSTEM_PROMPT` → prompt base en español incluido en el proyecto
 
 `FRONTEND_URL` también se valida como URL. Si está presente pero es inválida, el backend no arranca.
+
+Formato de `FRONTEND_URL`:
+
+- Acepta una o varias URLs separadas por comas.
+- Se recortan espacios alrededor de cada origen.
+- Se normalizan barras finales automáticamente.
+- Ejemplo válido para desarrollo + producción: `FRONTEND_URL=http://localhost:3000, https://mi-frontend.vercel.app/`.
+- Requests sin header `Origin` siguen permitidos para health checks y llamadas server-to-server.
+- Cualquier origen fuera de la lista se rechaza con un error `403` claro.
 
 ## Base de datos
 
@@ -131,7 +140,7 @@ Variables recomendadas para producción:
 - `NODE_ENV=production`
 - `DATABASE_URL=postgresql://...`
 - `OPENAI_API_KEY=...`
-- `FRONTEND_URL=https://TU-FRONTEND.vercel.app`
+- `FRONTEND_URL=http://localhost:3000,https://TU-FRONTEND.vercel.app`
 - `OPENAI_MODEL=gpt-4.1-mini`
 - `APP_NAME=Kabot`
 - `SYSTEM_PROMPT=Eres Kabot...`
