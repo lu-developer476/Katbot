@@ -3,14 +3,11 @@ import express from 'express';
 import cors from 'cors';
 import { query } from './db.js';
 import { generateAssistantReply } from './openai.js';
+import { env } from './env.js';
 
 const app = express();
 const PORT = Number(process.env.PORT || 4000);
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
-const APP_NAME = process.env.APP_NAME || 'Kabot';
-const SYSTEM_PROMPT =
-  process.env.SYSTEM_PROMPT ||
-  'Eres Kabot, un asistente útil, claro, rápido y confiable. Responde en español salvo que el usuario pida otro idioma.';
+const { FRONTEND_URL, APP_NAME, SYSTEM_PROMPT } = env;
 
 app.use(
   cors({

@@ -1,12 +1,13 @@
 import OpenAI from 'openai';
+import { env } from './env.js';
 
 export const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+  apiKey: env.OPENAI_API_KEY,
 });
 
 export async function generateAssistantReply(messages) {
   const completion = await openai.chat.completions.create({
-    model: process.env.OPENAI_MODEL || 'gpt-4.1-mini',
+    model: env.OPENAI_MODEL,
     messages,
     temperature: 0.7,
   });
