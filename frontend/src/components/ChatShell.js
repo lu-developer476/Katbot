@@ -5,6 +5,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 const API_URL = process.env.NEXT_PUBLIC_API_URL?.trim() || '';
 const API_URL_ERROR = validateApiUrl(API_URL);
 const DEFAULT_ERROR_MESSAGE = 'Ocurrió un problema de conexión. Probá de nuevo en unos segundos.';
+const CHAT_INIT_TIMEOUT_MS = 10000;
+const CHAT_MESSAGE_TIMEOUT_MS = 30000;
+const CHAT_INIT_TIMEOUT_MESSAGE = 'La creación del chat está tardando demasiado. Probá de nuevo sin recargar la página.';
+const CHAT_MESSAGE_TIMEOUT_MESSAGE = 'La respuesta está tardando demasiado. Cortamos la espera para que no quede “Pensando...” para siempre. Probá de nuevo en unos segundos.';
 
 function validateApiUrl(value) {
   if (!value) {
@@ -35,20 +39,29 @@ async function parseHttpError(response, fallbackMessage) {
   return fallbackMessage;
 }
 
-async function request(path, options = {}) {
+async function request(path, options = {}, timeoutMs = CHAT_MESSAGE_TIMEOUT_MS, timeoutMessage = CHAT_MESSAGE_TIMEOUT_MESSAGE) {
   if (API_URL_ERROR) {
     throw new Error(API_URL_ERROR);
   }
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   let response;
 
   try {
     response = await fetch(`${API_URL.replace(/\/$/, '')}${path}`, {
       headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
       ...options,
+      signal: controller.signal,
     });
   } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw new Error(timeoutMessage, { cause: error });
+    }
+
     throw new Error(DEFAULT_ERROR_MESSAGE, { cause: error });
+  } finally {
+    clearTimeout(timeoutId);
   }
 
   if (!response.ok) {
@@ -89,7 +102,12 @@ export default function ChatShell() {
       setChatStatus('loading');
       setError('');
 
-      const chat = await request('/api/chats', { method: 'POST', body: JSON.stringify({}) });
+      const chat = await request(
+        '/api/chats',
+        { method: 'POST', body: JSON.stringify({}) },
+        CHAT_INIT_TIMEOUT_MS,
+        CHAT_INIT_TIMEOUT_MESSAGE
+      );
 
       setChatId(chat.chat.id);
       setChatStatus('ready');
@@ -121,10 +139,15 @@ export default function ChatShell() {
     setError('');
 
     try {
-      const result = await request(`/api/chats/${chatId}/messages`, {
-        method: 'POST',
-        body: JSON.stringify({ content: prompt }),
-      });
+      const result = await request(
+        `/api/chats/${chatId}/messages`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ content: prompt }),
+        },
+        CHAT_MESSAGE_TIMEOUT_MS,
+        CHAT_MESSAGE_TIMEOUT_MESSAGE
+      );
 
       setMessages(result.messages);
     } catch (err) {
@@ -229,15 +252,14 @@ export default function ChatShell() {
           <form onSubmit={handleSubmit} style={styles.form}>
             <textarea
               value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder={chatStatus === 'ready' ? 'Escribí tu mensaje...' : 'Esperá a que el chat esté disponible...'}
-              rows={4}
+              onChange={(event) => setInput(event.target.value)}
+              placeholder="Escribí tu mensaje..."
               style={styles.textarea}
-              disabled={Boolean(API_URL_ERROR) || chatStatus !== 'ready'}
+              disabled={loading || chatStatus !== 'ready' || Boolean(API_URL_ERROR)}
             />
             <div style={styles.formFooter}>
-              <span style={styles.error}>{showChatInitializationError ? '' : error}</span>
-              <button type="submit" disabled={disabled} style={styles.primaryButton}>
+              <span style={styles.error}>{error}</span>
+              <button type="submit" style={styles.primaryButton} disabled={disabled}>
                 {loading ? 'Pensando...' : 'Enviar'}
               </button>
             </div>
