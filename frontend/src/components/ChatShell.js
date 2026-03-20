@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL?.trim() || '';
 const API_URL_ERROR = validateApiUrl(API_URL);
+const DEFAULT_ERROR_MESSAGE = 'Ocurrió un problema de conexión. Probá de nuevo en unos segundos.';
 
 function validateApiUrl(value) {
   if (!value) {
@@ -17,19 +18,47 @@ function validateApiUrl(value) {
   }
 }
 
+async function parseHttpError(response, fallbackMessage) {
+  const contentType = response.headers.get('content-type') || '';
+
+  if (contentType.includes('application/json')) {
+    try {
+      const data = await response.json();
+      if (typeof data?.error === 'string' && data.error.trim()) {
+        return data.error.trim();
+      }
+    } catch (error) {
+      console.error('No se pudo interpretar la respuesta de error del backend.', error);
+    }
+  }
+
+  return fallbackMessage;
+}
+
 async function request(path, options = {}) {
   if (API_URL_ERROR) {
     throw new Error(API_URL_ERROR);
   }
 
-  const response = await fetch(`${API_URL.replace(/\/$/, '')}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
-    ...options,
-  });
+  let response;
+
+  try {
+    response = await fetch(`${API_URL.replace(/\/$/, '')}${path}`, {
+      headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+      ...options,
+    });
+  } catch (error) {
+    throw new Error(DEFAULT_ERROR_MESSAGE, { cause: error });
+  }
 
   if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(errorText || 'Error de red');
+    const fallbackMessage =
+      response.status >= 500
+        ? 'El servidor no pudo responder correctamente. Probá de nuevo en un momento.'
+        : 'No pudimos completar la solicitud. Revisá los datos e intentá otra vez.';
+
+    const message = await parseHttpError(response, fallbackMessage);
+    throw new Error(message, { cause: response });
   }
 
   return response.json();
@@ -41,31 +70,43 @@ export default function ChatShell() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(API_URL_ERROR);
+  const [chatStatus, setChatStatus] = useState(API_URL_ERROR ? 'error' : 'idle');
 
   const disabled = useMemo(
-    () => loading || !input.trim() || Boolean(API_URL_ERROR),
-    [loading, input]
+    () => loading || !input.trim() || Boolean(API_URL_ERROR) || !chatId || chatStatus !== 'ready',
+    [loading, input, chatId, chatStatus]
   );
 
-  useEffect(() => {
+  const initializeChat = useCallback(async () => {
     if (API_URL_ERROR) {
+      setChatStatus('error');
       setError(API_URL_ERROR);
       return;
     }
 
-    const init = async () => {
-      try {
-        setError('');
-        const chat = await request('/api/chats', { method: 'POST', body: JSON.stringify({}) });
-        setChatId(chat.chat.id);
-        setMessages([]);
-      } catch (err) {
-        setError(err.message || 'No se pudo iniciar el chat.');
-      }
-    };
+    try {
+      setLoading(true);
+      setChatStatus('loading');
+      setError('');
 
-    init();
+      const chat = await request('/api/chats', { method: 'POST', body: JSON.stringify({}) });
+
+      setChatId(chat.chat.id);
+      setChatStatus('ready');
+      setMessages([]);
+    } catch (err) {
+      console.error('Error al crear el chat inicial.', err);
+      setChatId(null);
+      setChatStatus('error');
+      setError(err.message || 'No se pudo iniciar el chat.');
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    initializeChat();
+  }, [initializeChat]);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -87,6 +128,9 @@ export default function ChatShell() {
 
       setMessages(result.messages);
     } catch (err) {
+      console.error('Error al enviar un mensaje.', err);
+      setMessages((prev) => prev.filter((message) => message.id !== optimisticUser.id));
+      setInput(prompt);
       setError(err.message || 'No se pudo enviar el mensaje.');
     } finally {
       setLoading(false);
@@ -94,24 +138,12 @@ export default function ChatShell() {
   };
 
   const resetConversation = async () => {
-    if (API_URL_ERROR) {
-      setError(API_URL_ERROR);
-      return;
-    }
-
-    try {
-      setLoading(true);
-      setError('');
-      const chat = await request('/api/chats', { method: 'POST', body: JSON.stringify({}) });
-      setChatId(chat.chat.id);
-      setMessages([]);
-      setInput('');
-    } catch (err) {
-      setError(err.message || 'No se pudo reiniciar la conversación.');
-    } finally {
-      setLoading(false);
-    }
+    setMessages([]);
+    setInput('');
+    await initializeChat();
   };
+
+  const showChatInitializationError = !API_URL_ERROR && chatStatus === 'error';
 
   return (
     <main style={styles.page}>
@@ -157,8 +189,23 @@ export default function ChatShell() {
             </div>
           ) : null}
 
+          {showChatInitializationError ? (
+            <div style={styles.requestErrorBox}>
+              <p style={styles.requestErrorTitle}>No pudimos iniciar el chat.</p>
+              <p style={styles.requestErrorText}>{error || 'Probá de nuevo sin recargar la página.'}</p>
+              <button type="button" onClick={() => initializeChat()} style={styles.retryButton} disabled={loading}>
+                {loading ? 'Reintentando...' : 'Reintentar'}
+              </button>
+            </div>
+          ) : null}
+
           <div style={styles.messagesBox}>
-            {messages.length === 0 ? (
+            {chatStatus === 'loading' && messages.length === 0 ? (
+              <div style={styles.emptyState}>
+                <p style={styles.emptyTitle}>Preparando el chat...</p>
+                <p style={styles.emptyText}>Estamos creando una nueva conversación.</p>
+              </div>
+            ) : messages.length === 0 ? (
               <div style={styles.emptyState}>
                 <p style={styles.emptyTitle}>Todavía no hay mensajes.</p>
                 <p style={styles.emptyText}>Escribí algo como “Hola Kabot, ¿qué podés hacer?”</p>
@@ -183,13 +230,13 @@ export default function ChatShell() {
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Escribí tu mensaje..."
+              placeholder={chatStatus === 'ready' ? 'Escribí tu mensaje...' : 'Esperá a que el chat esté disponible...'}
               rows={4}
               style={styles.textarea}
-              disabled={Boolean(API_URL_ERROR)}
+              disabled={Boolean(API_URL_ERROR) || chatStatus !== 'ready'}
             />
             <div style={styles.formFooter}>
-              <span style={styles.error}>{error}</span>
+              <span style={styles.error}>{showChatInitializationError ? '' : error}</span>
               <button type="submit" disabled={disabled} style={styles.primaryButton}>
                 {loading ? 'Pensando...' : 'Enviar'}
               </button>
@@ -304,6 +351,34 @@ const styles = {
     margin: 0,
     color: '#ffdede',
     lineHeight: 1.6,
+  },
+  requestErrorBox: {
+    display: 'grid',
+    gap: 10,
+    padding: '14px 16px',
+    borderRadius: 18,
+    border: '1px solid rgba(255, 199, 107, 0.45)',
+    background: 'rgba(72, 45, 12, 0.55)',
+  },
+  requestErrorTitle: {
+    margin: 0,
+    color: '#ffe6b0',
+    fontWeight: 700,
+  },
+  requestErrorText: {
+    margin: 0,
+    color: '#fff0cb',
+    lineHeight: 1.6,
+  },
+  retryButton: {
+    justifySelf: 'start',
+    border: 0,
+    borderRadius: 12,
+    padding: '10px 14px',
+    background: 'rgba(255, 214, 134, 0.95)',
+    color: '#2d1700',
+    fontWeight: 800,
+    cursor: 'pointer',
   },
   messagesBox: {
     display: 'flex',
